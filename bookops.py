@@ -1,4 +1,12 @@
 import argparse
+import sys
+import io
+
+# Ensure UTF-8 output for Windows console
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
 from pipeline import run_pipeline
 from formatters import print_table, print_json, print_tsv
 
@@ -19,3 +27,4 @@ def main():
         print_table(results)
 
 if __name__ == "__main__":
+    main()

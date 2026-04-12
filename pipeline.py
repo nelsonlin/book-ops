@@ -20,3 +20,6 @@ def run_pipeline(book_name: str, selected_sites=None):
             site_results = site.search(book_name)
             results.extend(site_results)
         except Exception as e:
+            print(f"Error searching {site_name}: {e}")
+
+    return results

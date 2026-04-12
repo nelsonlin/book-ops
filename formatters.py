@@ -37,4 +37,4 @@ def print_tsv(results):
     print("title\tauthor\tformat\tdate\tsource\turl")
     for item in results:
         row = _to_row(item)
-        print(
+        print("\t".join(str(v) for v in row.values()))
