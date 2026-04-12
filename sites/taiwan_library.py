@@ -354,10 +354,15 @@ def _looks_like_bookish_row(title, text):
 
 def _normalize_date(d):
     if not d: return ""
-    m = re.search(r"(19|20)\d{2}[/-](0?[1-9]|1[0-2])[/-](0?[1-9]|[12]\d|3[01])", d)
-    if m: return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    # Try full date (YYYY-MM-DD or YYYY/MM/DD)
+    m = re.search(r"((?:19|20)\d{2})([-/.])(1[0-2]|0?[1-9])\2([12][0-9]|3[01]|0?[1-9])", d)
+    if m:
+        return f"{m.group(1)}-{int(m.group(3)):02d}-{int(m.group(4)):02d}"
+    # Try year only
     m = re.search(r"(19|20)\d{2}", d)
-    return f"{m.group(0)}-01-01" if m else ""
+    if m:
+        return f"{m.group(0)}-01-01"
+    return ""
 
 
 def _clean_text(t):
