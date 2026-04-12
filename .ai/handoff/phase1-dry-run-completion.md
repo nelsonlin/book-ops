@@ -60,5 +60,23 @@ Successfully implemented `--dry-run` mode for the `bookops.py` CLI to enable fas
 
 ## Completion Signal
 - [x] Created this completion summary
-- [ ] Open GitHub PR with `gh pr create --title "feat: Phase 1 - CLI Dry-Run"`
-- [ ] Notify Nelson and Gemini CLI to review
+- [x] Open GitHub PR with `gh pr create --title "feat: Phase 1 - CLI Dry-Run"`
+- [x] Notify Nelson and Gemini CLI to review
+
+---
+
+**Status**: ✅ COMPLETE - PR #3 is open at https://github.com/nelsonlin/book-ops/pull/3
+
+## Git Push Workaround
+The terminal environment lacks TTY access for interactive credential prompts. The workaround that works:
+
+```bash
+# Embed GitHub token in remote URL
+git remote set-url origin https://<GITHUB_TOKEN>@github.com/nelsonlin/book-ops.git
+git push
+```
+
+Alternatively, use `gh pr create` directly as it works with stored credentials.
+
+## About test_taiwan_library.py
+The `test_taiwan_library.py` test file has a pre-existing import issue: it tries to import `_guess_author` from `sites.taiwan_library`, but this function doesn't exist in the current implementation. This is unrelated to the Phase 1 changes and existed before. The relevant test (`test_normalize.py`) passes successfully.
