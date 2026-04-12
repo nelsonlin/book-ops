@@ -8,6 +8,7 @@ class BookResult:
     date: str = ""
     url: str = ""
     source: str = ""
+    frontcover: str = ""
 
     def to_dict(self):
         return asdict(self)
