@@ -27,6 +27,14 @@ def run_pipeline_dry():
             url="https://example.com/book/2",
             source="dry-run",
         ),
+        BookResult(
+            title="Clean Architecture",
+            author="Robert C. Martin",
+            format="Paper",
+            date="2017",
+            url="https://example.com/book/3",
+            source="dry-run",
+        ),
     ]
 
 def run_pipeline(book_name: str, selected_sites=None):
