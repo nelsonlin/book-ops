@@ -1,0 +1,10 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "mcp": {
+    "perplexity-web": {
+      "type": "local",
+      "command": ["cmd", "/c", "npx", "-y", "perplexity-web-api-mcp"],      "enabled": true,
+      "timeout": 60000
+    }
+  }
+}

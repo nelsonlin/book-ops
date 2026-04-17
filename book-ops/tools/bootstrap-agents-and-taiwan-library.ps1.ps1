@@ -1,0 +1,638 @@
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$RootPath
+)
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+function Write-Utf8NoBom {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Content
+    )
+
+    $directory = Split-Path -Path $Path -Parent
+    if ($directory -and -not (Test-Path -LiteralPath $directory)) {
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    }
+
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($Path, $Content, $utf8NoBom)
+    Write-Host "Wrote $Path" -ForegroundColor Green
+}
+
+$ResolvedRoot = (Resolve-Path -LiteralPath $RootPath).Path
+
+Write-Host "Target root: $ResolvedRoot" -ForegroundColor Cyan
+
+Write-Utf8NoBom -Path (Join-Path $ResolvedRoot "GEMINI.md") -Content @'
+# GEMINI.md
+
+## Project
+Book-Ops is a Python CLI for searching multiple book/library websites and normalizing book metadata.
+
+## Main goals
+- Keep Windows PowerShell as a first-class workflow
+- Use Playwright for site automation
+- Keep scraper logic inside `sites/*.py`
+- Return `BookResult` objects from all site handlers
+- Favor debuggable code over clever code
+
+## Rules
+- Do not move scraping logic into `bookops.py`
+- Do not add heavy abstractions until one site adapter works reliably
+- Prefer small helper functions
+- Save debug artifacts to `output/<site>/`
+- When changing selectors, inspect dumped HTML first
+- Prefer row-scoped extraction over page-wide link scraping
+- Prefer Playwright locators and visible waits over arbitrary sleep
+
+## Current focus
+Refine `sites/taiwan_library.py` using real dumped HTML after a search.
+
+## Good tasks
+- Improve selectors
+- Add helper tests
+- Improve output formatting
+- Add JSON/TSV file export
+- Reduce false positives in parsing heuristics
+'@
+
+Write-Utf8NoBom -Path (Join-Path $ResolvedRoot "AGENTS.md") -Content @'
+# AGENTS.md
+
+## Coding instructions
+- Make minimal, reviewable changes
+- Keep functions under ~40 lines when practical
+- Preserve debug logging unless explicitly removed
+- Prefer additive changes over broad rewrites
+- Keep comments short and operational
+
+## Scraper policy
+- Use Playwright locator APIs first
+- Try multiple selectors in ordered fallback lists
+- Wait for meaningful DOM states
+- Dump screenshot + HTML + metadata on important steps
+- Parse repeated result rows before parsing loose links
+- Normalize missing fields to safe defaults
+
+## File ownership hints
+- `sites/*.py`: website-specific interaction and extraction
+- `pipeline.py`: orchestration only
+- `formatters.py`: rendering only
+- `models.py`: schema only
+- `docs/*.md`: source of truth for architecture and workflow
+'@
+
+Write-Utf8NoBom -Path (Join-Path $ResolvedRoot "docs/PRODUCT.md") -Content @'
+# PRODUCT.md
+
+Book-Ops is a CLI that accepts a book title, searches multiple sites, extracts metadata, normalizes fields, and returns readable output for borrowing or sourcing decisions.
+
+## Inputs
+- Book name from CLI
+
+## Outputs
+- Console table
+- JSON
+- TSV
+- Optional debug artifacts
+
+## Current stage
+Bootstrap and first real adapter development for Taiwan Library search.
+'@
+
+Write-Utf8NoBom -Path (Join-Path $ResolvedRoot "docs/ARCHITECTURE.md") -Content @'
+# ARCHITECTURE.md
+
+## Flow
+CLI -> pipeline -> site adapters -> normalized BookResult -> output formatter
+
+## Modules
+- `bookops.py`: CLI entry
+- `pipeline.py`: dispatch to sites
+- `sites/*.py`: site-specific automation and parsing
+- `models.py`: BookResult schema
+- `formatters.py`: table/json/tsv output
+
+## Guiding principle
+One working site adapter is more valuable than a large abstraction that has never parsed real DOM.
+'@
+
+Write-Utf8NoBom -Path (Join-Path $ResolvedRoot "docs/DOM-PARSING.md") -Content @'
+# DOM-PARSING.md
+
+## Rules
+- Prefer Playwright locators over XPath
+- Prefer accessible/user-facing selectors first
+- Wait on result containers or meaningful content
+- Dump HTML and screenshot before and after search
+- Parse row containers first, links second
+- Skip navigation/footer noise with explicit filters
+- Store debug files under `output/<site>/`
+
+## Workflow
+1. Run scraper visibly
+2. Inspect `02_after_search.html`
+3. Identify repeating result row
+4. Extract title, author, format, date, url from row children
+5. Add or refine helper tests
+'@
+
+Write-Utf8NoBom -Path (Join-Path $ResolvedRoot "docs/WORKFLOWS.md") -Content @'
+# WORKFLOWS.md
+
+## Gemini CLI workflow
+- Open repo root
+- Ask Gemini to use `GEMINI.md` and relevant docs
+- Provide `output/taiwan_library/*.html` as explicit context
+- Request selector refinement or parsing improvements
+
+## Kilo Code workflow
+- Use `AGENTS.md`
+- Work file-by-file
+- Prefer edits to helper functions instead of whole-file rewrites
+
+## Recommended prompts
+- "Refine row selector using output/taiwan_library/02_after_search.html"
+- "Add tests for parsing helpers in sites/taiwan_library.py"
+- "Reduce false positives in _looks_like_bookish_row"
+'@
+
+Write-Utf8NoBom -Path (Join-Path $ResolvedRoot "prompts/refine-selector.md") -Content @'
+Use `output/taiwan_library/02_after_search.html` as the primary source of truth.
+Find the repeating result row selector.
+Then propose exact child selectors for:
+- title
+- author
+- format
+- date
+- url
+
+Do not rewrite unrelated files.
+'@
+
+Write-Utf8NoBom -Path (Join-Path $ResolvedRoot "prompts/debug-site.md") -Content @'
+Review `sites/taiwan_library.py` and the files under `output/taiwan_library/`.
+Explain:
+1. Which selector matched
+2. Why parsing succeeded or failed
+3. What the next smallest code change should be
+'@
+
+Write-Utf8NoBom -Path (Join-Path $ResolvedRoot "prompts/write-tests.md") -Content @'
+Write focused tests for helper functions in `sites/taiwan_library.py`.
+Start with:
+- _clean_text
+- _guess_format
+- _guess_date
+- _dedupe_results
+Do not add network/browser tests yet.
+'@
+
+Write-Utf8NoBom -Path (Join-Path $ResolvedRoot "sites/taiwan_library.py") -Content @'
+import asyncio
+import json
+import re
+from pathlib import Path
+from urllib.parse import urljoin
+
+from playwright.async_api import (
+    async_playwright,
+    TimeoutError as PlaywrightTimeoutError,
+)
+
+from models import BookResult
+
+BASE_URL = "https://taiwanlibrarysearch.herokuapp.com/"
+DEBUG_DIR = Path("output") / "taiwan_library"
+
+# Agent-support notes:
+# - Gemini CLI can safely modify SEARCH_*_SELECTORS and RESULT_ROW_SELECTORS.
+# - Kilo Code can refine _extract_results_from_rows() once real DOM is inspected.
+# - Keep functions small and artifact-driven so AI edits are easy to review.
+
+SEARCH_BOX_SELECTORS = [
+    ("role:textbox", None),
+    ("css", "input[type='search']"),
+    ("css", "input[type='text']"),
+    ("css", "input[name*='search']"),
+    ("css", "input[id*='search']"),
+    ("css", "input[name*='query']"),
+    ("css", "input[id*='query']"),
+]
+
+SEARCH_BUTTON_SELECTORS = [
+    ("role:button", "搜尋"),
+    ("role:button", "Search"),
+    ("role:button", "查詢"),
+    ("css", "button[type='submit']"),
+    ("css", "input[type='submit']"),
+    ("css", "button"),
+]
+
+RESULT_ROW_SELECTORS = [
+    "table tbody tr",
+    "table tr",
+    ".result",
+    ".results .item",
+    ".book",
+    ".book-item",
+    ".card",
+    "li",
+]
+
+NO_RESULT_PATTERNS = [
+    r"查無資料",
+    r"沒有結果",
+    r"無符合",
+    r"no results",
+    r"not found",
+]
+
+HEADLESS_DEFAULT = False
+TIMEOUT_MS = 30000
+
+
+def search(book_name: str):
+    return asyncio.run(_search_async(book_name))
+
+
+async def _search_async(book_name: str):
+    DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    debug_log = []
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=HEADLESS_DEFAULT,
+            slow_mo=200 if not HEADLESS_DEFAULT else 0,
+        )
+        context = await browser.new_context()
+        page = await context.new_page()
+
+        try:
+            await _log(debug_log, f"goto {BASE_URL}")
+            await page.goto(BASE_URL, wait_until="domcontentloaded", timeout=TIMEOUT_MS)
+            await _dump_debug(page, "01_loaded", debug_log)
+
+            search_box = await _find_search_box(page, debug_log)
+            await _log(debug_log, "search box found")
+
+            await search_box.fill("")
+            await search_box.fill(book_name)
+            await _log(debug_log, f"filled search text: {book_name}")
+
+            await _submit_search(page, search_box, debug_log)
+            await _wait_for_search_state(page, debug_log)
+
+            await _dump_debug(page, "02_after_search", debug_log)
+
+            if await _looks_like_no_result(page):
+                await _log(debug_log, "no-result pattern detected")
+                await _write_debug_log(debug_log)
+                return []
+
+            row_locator, selector_used = await _find_result_rows(page, debug_log)
+            if row_locator is None:
+                await _log(debug_log, "no result rows found; falling back to link parsing")
+                fallback = await _extract_results_from_links(page, debug_log)
+                fallback = _dedupe_results(fallback)
+                await _log(debug_log, f"fallback result count: {len(fallback)}")
+                await _write_debug_log(debug_log)
+                return fallback
+
+            await _log(debug_log, f"result rows found with selector: {selector_used}")
+            results = await _extract_results_from_rows(page, row_locator, selector_used, debug_log)
+
+            if not results:
+                await _log(debug_log, "row parsing yielded zero results; trying fallback link parsing")
+                results = await _extract_results_from_links(page, debug_log)
+
+            results = _dedupe_results(results)
+            await _log(debug_log, f"final result count: {len(results)}")
+            await _write_debug_log(debug_log)
+            return results
+
+        except Exception as exc:
+            await _log(debug_log, f"fatal error: {type(exc).__name__}: {exc}")
+            await _dump_debug(page, "99_error", debug_log)
+            await _write_debug_log(debug_log)
+            raise
+        finally:
+            await browser.close()
+
+
+async def _find_search_box(page, debug_log):
+    for kind, value in SEARCH_BOX_SELECTORS:
+        try:
+            locator = _build_locator(page, kind, value)
+            await locator.first.wait_for(state="visible", timeout=2000)
+            count = await locator.count()
+            await _log(debug_log, f"search box selector matched: {kind} {value} count={count}")
+            return locator.first
+        except PlaywrightTimeoutError:
+            continue
+        except Exception as exc:
+            await _log(debug_log, f"search box selector failed: {kind} {value} err={exc}")
+
+    raise RuntimeError("Search textbox not found")
+
+
+async def _submit_search(page, search_box, debug_log):
+    for kind, value in SEARCH_BUTTON_SELECTORS:
+        try:
+            locator = _build_locator(page, kind, value)
+            await locator.first.wait_for(state="visible", timeout=1500)
+            await locator.first.click()
+            await _log(debug_log, f"clicked search button: {kind} {value}")
+            return
+        except PlaywrightTimeoutError:
+            continue
+        except Exception as exc:
+            await _log(debug_log, f"search button candidate failed: {kind} {value} err={exc}")
+
+    await search_box.press("Enter")
+    await _log(debug_log, "submitted search with Enter fallback")
+
+
+async def _wait_for_search_state(page, debug_log):
+    try:
+        await page.wait_for_load_state("networkidle", timeout=8000)
+        await _log(debug_log, "networkidle reached")
+    except PlaywrightTimeoutError:
+        await _log(debug_log, "networkidle timeout; continuing with DOM checks")
+
+    for selector in RESULT_ROW_SELECTORS:
+        try:
+            await page.locator(selector).first.wait_for(state="visible", timeout=2500)
+            await _log(debug_log, f"visible result candidate detected: {selector}")
+            return
+        except PlaywrightTimeoutError:
+            continue
+
+    try:
+        await page.wait_for_function(
+            "() => document.body && document.body.innerText && document.body.innerText.length > 200",
+            timeout=5000,
+        )
+        await _log(debug_log, "body text length indicates content loaded")
+    except PlaywrightTimeoutError:
+        await _log(debug_log, "body text wait timed out")
+
+
+async def _find_result_rows(page, debug_log):
+    for selector in RESULT_ROW_SELECTORS:
+        try:
+            locator = page.locator(selector)
+            await locator.first.wait_for(state="visible", timeout=1500)
+            count = await locator.count()
+            await _log(debug_log, f"row selector {selector} count={count}")
+            if count > 0:
+                return locator, selector
+        except PlaywrightTimeoutError:
+            continue
+        except Exception as exc:
+            await _log(debug_log, f"row selector failed: {selector} err={exc}")
+
+    return None, None
+
+
+async def _extract_results_from_rows(page, rows, selector_used, debug_log):
+    results = []
+    count = await rows.count()
+    limit = min(count, 20)
+
+    for i in range(limit):
+        row = rows.nth(i)
+        try:
+            text = _clean_text(await row.inner_text())
+            if not text or len(text) < 2:
+                continue
+
+            link = row.locator("a[href]").first
+            href = None
+            title = ""
+
+            try:
+                await link.wait_for(state="attached", timeout=500)
+                href = await link.get_attribute("href")
+                title = _clean_text(await link.inner_text())
+            except Exception:
+                href = None
+                title = ""
+
+            if not title:
+                title = _guess_title_from_text(text)
+
+            if not _looks_like_bookish_row(title, text):
+                continue
+
+            author = _guess_author(text)
+            fmt = _guess_format(text)
+            date = _guess_date(text)
+            url = urljoin(page.url, href) if href else page.url
+
+            item = BookResult(
+                title=title or "Unknown",
+                author=author or "Unknown",
+                format=fmt or "Unknown",
+                date=date or "",
+                url=url,
+                source="taiwan_library",
+            )
+            results.append(item)
+            await _log(debug_log, f"parsed row[{i}] title={item.title!r} selector={selector_used}")
+
+        except Exception as exc:
+            await _log(debug_log, f"row parse failed index={i} err={exc}")
+
+    return results
+
+
+async def _extract_results_from_links(page, debug_log):
+    results = []
+    links = page.locator("a[href]")
+    count = await links.count()
+    limit = min(count, 50)
+
+    for i in range(limit):
+        link = links.nth(i)
+        try:
+            text = _clean_text(await link.inner_text())
+            href = await link.get_attribute("href")
+            if not text or len(text) < 2:
+                continue
+            if not href or href.startswith("javascript:"):
+                continue
+            if not _looks_like_bookish_row(text, text):
+                continue
+
+            results.append(
+                BookResult(
+                    title=text,
+                    author="Unknown",
+                    format=_guess_format(text),
+                    date=_guess_date(text),
+                    url=urljoin(page.url, href),
+                    source="taiwan_library",
+                )
+            )
+        except Exception as exc:
+            await _log(debug_log, f"fallback link parse failed index={i} err={exc}")
+
+    return results
+
+
+async def _looks_like_no_result(page):
+    try:
+        body_text = (await page.locator("body").inner_text()).lower()
+    except Exception:
+        return False
+
+    for pattern in NO_RESULT_PATTERNS:
+        if re.search(pattern, body_text, re.IGNORECASE):
+            return True
+    return False
+
+
+def _build_locator(page, kind, value):
+    if kind == "role:textbox":
+        return page.get_by_role("textbox")
+    if kind == "role:button":
+        return page.get_by_role("button", name=value)
+    if kind == "css":
+        return page.locator(value)
+    raise ValueError(f"Unsupported locator kind: {kind}")
+
+
+def _clean_text(text):
+    if not text:
+        return ""
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _guess_title_from_text(text):
+    if not text:
+        return ""
+    chunks = [c.strip() for c in re.split(r"[|｜\n]", text) if c.strip()]
+    return chunks[0] if chunks else text[:120].strip()
+
+
+def _guess_author(text):
+    if not text:
+        return ""
+    patterns = [
+        r"作者[:：]\s*([^\s|｜]+(?:\s*[^\s|｜]+){0,4})",
+        r"Author[:：]?\s*([^\s|｜]+(?:\s*[^\s|｜]+){0,4})",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            return _clean_text(m.group(1))
+    return ""
+
+
+def _guess_format(text):
+    if not text:
+        return "Unknown"
+    upper = text.upper()
+    if "EPUB" in upper:
+        return "EPUB"
+    if "PDF" in upper:
+        return "PDF"
+    if "PAPER" in upper or "紙本" in text:
+        return "Paper"
+    return "Unknown"
+
+
+def _guess_date(text):
+    if not text:
+        return ""
+    m = re.search(r"(19|20)\d{2}([/-]\d{1,2})?([/-]\d{1,2})?", text)
+    return m.group(0) if m else ""
+
+
+def _looks_like_bookish_row(title, text):
+    blob = f"{title} {text}".strip()
+    if len(blob) < 2:
+        return False
+
+    blocked_terms = [
+        "首頁", "home", "登入", "login", "註冊", "register",
+        "facebook", "instagram", "copyright", "隱私", "privacy",
+        "條款", "terms", "menu", "導航", "search",
+    ]
+    lowered = blob.lower()
+    if any(term.lower() in lowered for term in blocked_terms):
+        return False
+    return True
+
+
+def _dedupe_results(results):
+    seen = set()
+    deduped = []
+
+    for item in results:
+        key = (
+            _normalize_key(item.title),
+            _normalize_key(item.author),
+            _normalize_key(item.url),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+
+    return deduped
+
+
+def _normalize_key(value):
+    return re.sub(r"\s+", " ", (value or "").strip().lower())
+
+
+async def _dump_debug(page, tag, debug_log):
+    png_path = DEBUG_DIR / f"{tag}.png"
+    html_path = DEBUG_DIR / f"{tag}.html"
+    meta_path = DEBUG_DIR / f"{tag}.json"
+
+    await page.screenshot(
+        path=str(png_path),
+        full_page=True,
+        animations="disabled",
+    )
+    html = await page.content()
+    html_path.write_text(html, encoding="utf-8")
+
+    meta = {
+        "tag": tag,
+        "url": page.url,
+        "title": await page.title(),
+    }
+    meta_path.write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    await _log(debug_log, f"debug dump saved: {tag}")
+
+
+async def _log(debug_log, message):
+    line = f"[taiwan_library] {message}"
+    print(line)
+    debug_log.append(line)
+
+
+async def _write_debug_log(debug_log):
+    path = DEBUG_DIR / "debug.log"
+    path.write_text("\n".join(debug_log) + "\n", encoding="utf-8")
+'@
+
+Write-Host ""
+Write-Host "Bootstrap complete." -ForegroundColor Cyan
+Write-Host "Next steps:"
+Write-Host "  cd $ResolvedRoot"
+Write-Host "  .\tools\run.ps1 -BookName `"原子習慣`""
+Write-Host "  code .\output\taiwan_library\02_after_search.html"
+Write-Host "  Get-Content .\output\taiwan_library\debug.log"

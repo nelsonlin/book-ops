@@ -1,0 +1,439 @@
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,6 @@
++.venv/
++__pycache__/
++*.pyc
++output/
++playwright-report/
++test-results/
+diff --git a/requirements.txt b/requirements.txt
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/requirements.txt
+@@ -0,0 +1,3 @@
++playwright==1.52.0
++rich==14.0.0
++pytest==8.3.5
+
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,43 @@
++# book-ops
++
++A Windows-friendly Python + Playwright starter for a multi-site book search pipeline.
++
++## Quick start
++
++```powershell
++.\tools\setup.ps1
++.\tools\run.ps1 -BookName "Atomic Habits"
++.\tools\run.ps1 -BookName "原子習慣" -Format json
++```
++
++## GitHub remote
++
++```powershell
++git init
++git branch -M main
++git remote add origin https://github.com/nelsonlin/book-ops.git
++git add .
++git commit -m "Initial book-ops starter"
++git push -u origin main
++```
++
++## Gemini CLI workflow
++
++- Use Gemini CLI in VS Code integrated terminal.
++- Ask it to review diffs, write tests, and suggest commit messages.
++- Keep git as the source of truth for branches and commits.
++
++## Project structure
++
++- `bookops.py` CLI entry
++- `pipeline.py` orchestration
++- `models.py` result schema
++- `formatters.py` output renderers
++- `sites/*.py` site adapters
++- `tools/*.ps1` Windows development scripts
++- `.vscode/*` workspace settings
++- `BOOKOPS.md` AI/dev contract
++
++## Suggested flow
++
++```powershell
++git checkout -b feat/bootstrap-windows-playwright
++.\tools\setup.ps1
++.\tools\run.ps1 -BookName "Atomic Habits"
++pytest
++git add .
++git commit -m "feat: add Windows PowerShell starter for book-ops"
++```
+diff --git a/BOOKOPS.md b/BOOKOPS.md
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/BOOKOPS.md
+@@ -0,0 +1,21 @@
++# BOOKOPS.md
++
++## Goal
++Book-Ops is a Python CLI for searching multiple book websites and normalizing results.
++
++## Priorities
++1. Make `sites/taiwan_library.py` work with Playwright
++2. Keep the project easy to run on Windows PowerShell
++3. Support table / JSON / TSV output
++4. Add deduplication after the first real adapter works
++
++## Rules
++- Keep site-specific selectors and parsing inside `sites/*.py`
++- Return `BookResult` objects from every site handler
++- Do not put scraping logic in `bookops.py`
++- Prefer small, testable functions
++- Save debug artifacts under `output/`
++
++## Development workflow
++- VS Code is the editor
++- Gemini CLI runs in the integrated terminal
++- Kilo Code can be used for code edits and refactors
+diff --git a/models.py b/models.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/models.py
+@@ -0,0 +1,13 @@
++from dataclasses import dataclass, asdict
++
++@dataclass
++class BookResult:
++    title: str
++    author: str
++    format: str = "Unknown"
++    date: str = ""
++    url: str = ""
++    source: str = ""
++
++    def to_dict(self):
++        return asdict(self)
+diff --git a/formatters.py b/formatters.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/formatters.py
+@@ -0,0 +1,40 @@
++import json
++from rich.console import Console
++from rich.table import Table
++
++console = Console()
++
++def _to_row(item):
++    return item.to_dict() if hasattr(item, "to_dict") else item
++
++def print_table(results):
++    table = Table(title="Book-Ops Results")
++    table.add_column("Title")
++    table.add_column("Author")
++    table.add_column("Format")
++    table.add_column("Date")
++    table.add_column("Source")
++    table.add_column("URL")
++
++    for item in results:
++        row = _to_row(item)
++        table.add_row(
++            str(row.get("title", "")),
++            str(row.get("author", "")),
++            str(row.get("format", "")),
++            str(row.get("date", "")),
++            str(row.get("source", "")),
++            str(row.get("url", "")),
++        )
++
++    console.print(table)
++
++def print_json(results):
++    data = [_to_row(r) for r in results]
++    print(json.dumps(data, ensure_ascii=False, indent=2))
++
++def print_tsv(results):
++    print("title\tauthor\tformat\tdate\tsource\turl")
++    for item in results:
++        row = _to_row(item)
++        print(
++            f"{row.get('title','')}\t{row.get('author','')}\t{row.get('format','')}\t"
++            f"{row.get('date','')}\t{row.get('source','')}\t{row.get('url','')}"
++        )
+diff --git a/pipeline.py b/pipeline.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/pipeline.py
+@@ -0,0 +1,22 @@
++from sites import taiwan_library, ksml, zlibrary
++
++SITE_REGISTRY = {
++    "taiwan_library": taiwan_library,
++    "ksml": ksml,
++    "zlibrary": zlibrary,
++}
++
++def run_pipeline(book_name: str, selected_sites=None):
++    results = []
++    site_names = selected_sites or list(SITE_REGISTRY.keys())
++
++    for site_name in site_names:
++        site = SITE_REGISTRY.get(site_name)
++        if not site:
++            print(f"Unknown site: {site_name}")
++            continue
++
++        try:
++            site_results = site.search(book_name)
++            results.extend(site_results)
++        except Exception as e:
++            print(f"Error with {site_name}: {e}")
++
++    return results
+diff --git a/bookops.py b/bookops.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bookops.py
+@@ -0,0 +1,21 @@
++import argparse
++from pipeline import run_pipeline
++from formatters import print_table, print_json, print_tsv
++
++def main():
++    parser = argparse.ArgumentParser(description="Book-Ops CLI")
++    parser.add_argument("book_name", help="Name of the book to search")
++    parser.add_argument("--format", choices=["table", "json", "tsv"], default="table")
++    parser.add_argument("--sites", nargs="*", default=[])
++    args = parser.parse_args()
++
++    results = run_pipeline(args.book_name, selected_sites=args.sites)
++
++    if args.format == "json":
++        print_json(results)
++    elif args.format == "tsv":
++        print_tsv(results)
++    else:
++        print_table(results)
++
++if __name__ == "__main__":
++    main()
+diff --git a/sites/__init__.py b/sites/__init__.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/sites/__init__.py
+@@ -0,0 +1 @@
++# book site adapters package
+diff --git a/sites/taiwan_library.py b/sites/taiwan_library.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/sites/taiwan_library.py
+@@ -0,0 +1,41 @@
++import asyncio
++from pathlib import Path
++from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
++from models import BookResult
++
++BASE_URL = "https://taiwanlibrarysearch.herokuapp.com/"
++DEBUG_DIR = Path("output")
++
++def search(book_name: str):
++    return asyncio.run(_search_async(book_name))
++
++async def _search_async(book_name: str):
++    DEBUG_DIR.mkdir(parents=True, exist_ok=True)
++
++    async with async_playwright() as p:
++        browser = await p.chromium.launch(headless=True)
++        page = await browser.new_page()
++
++        try:
++            await page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30000)
++
++            textbox = page.get_by_role("textbox")
++            await textbox.fill(book_name)
++
++            buttons = page.get_by_role("button")
++            if await buttons.count() > 0:
++                await buttons.first.click()
++            else:
++                await textbox.press("Enter")
++
++            try:
++                await page.wait_for_load_state("networkidle", timeout=10000)
++            except PlaywrightTimeoutError:
++                pass
++
++            await page.screenshot(path=str(DEBUG_DIR / "taiwan_library.png"), full_page=True)
++
++            return [BookResult(title=book_name, author="Unknown", format="Unknown", date="", url=page.url, source="taiwan_library")]
++
++        except Exception:
++            await page.screenshot(path=str(DEBUG_DIR / "taiwan_library_error.png"), full_page=True)
++            raise
++        finally:
++            await browser.close()
+diff --git a/sites/ksml.py b/sites/ksml.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/sites/ksml.py
+@@ -0,0 +1,11 @@
++from models import BookResult
++
++def search(book_name: str):
++    return [BookResult(
++        title=book_name,
++        author="Unknown",
++        format="Unknown",
++        date="",
++        url="https://webpacx.ksml.edu.tw/",
++        source="ksml"
++    )]
+diff --git a/sites/zlibrary.py b/sites/zlibrary.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/sites/zlibrary.py
+@@ -0,0 +1,11 @@
++from models import BookResult
++
++def search(book_name: str):
++    return [BookResult(
++        title=book_name,
++        author="Unknown",
++        format="Unknown",
++        date="",
++        url="https://z-library.sk/",
++        source="zlibrary"
++    )]
+diff --git a/tests/test_normalize.py b/tests/test_normalize.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tests/test_normalize.py
+@@ -0,0 +1,8 @@
++from models import BookResult
++
++def test_book_result_to_dict():
++    item = BookResult(title="A", author="B", source="test")
++    data = item.to_dict()
++    assert data["title"] == "A"
++    assert data["author"] == "B"
++    assert data["source"] == "test"
+diff --git a/tools/setup.ps1 b/tools/setup.ps1
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tools/setup.ps1
+@@ -0,0 +1,17 @@
++param(
++    [string]$Python = "python"
++)
++
++$ErrorActionPreference = "Stop"
++Set-Location (Split-Path $PSScriptRoot -Parent)
++
++if (-not (Test-Path ".venv")) {
++    & $Python -m venv .venv
++}
++
++& .\.venv\Scripts\python.exe -m pip install --upgrade pip
++& .\.venv\Scripts\python.exe -m pip install -r requirements.txt
++& .\.venv\Scripts\python.exe -m playwright install chromium
++
++Write-Host ""
++Write-Host "Setup complete." -ForegroundColor Green
+diff --git a/tools/run.ps1 b/tools/run.ps1
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tools/run.ps1
+@@ -0,0 +1,24 @@
++param(
++    [Parameter(Mandatory = $true)]
++    [string]$BookName,
++
++    [ValidateSet("table", "json", "tsv")]
++    [string]$Format = "table",
++
++    [string[]]$Sites = @()
++)
++
++$ErrorActionPreference = "Stop"
++Set-Location (Split-Path $PSScriptRoot -Parent)
++
++$python = ".\.venv\Scripts\python.exe"
++
++if (-not (Test-Path $python)) {
++    Write-Error "Virtual environment not found. Run .\tools\setup.ps1 first."
++}
++
++$args = @("bookops.py", $BookName, "--format", $Format)
++if ($Sites.Count -gt 0) {
++    $args += "--sites"
++    $args += $Sites
++}
++
++& $python @args
+diff --git a/tools/git-init.ps1 b/tools/git-init.ps1
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tools/git-init.ps1
+@@ -0,0 +1,14 @@
++param(
++    [string]$Remote = "https://github.com/nelsonlin/book-ops.git"
++)
++
++$ErrorActionPreference = "Stop"
++Set-Location (Split-Path $PSScriptRoot -Parent)
++
++git init
++git branch -M main
++git remote remove origin 2>$null
++git remote add origin $Remote
++git add .
++git commit -m "Initial book-ops starter"
++Write-Host "Push with: git push -u origin main"
+diff --git a/.vscode/settings.json b/.vscode/settings.json
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/.vscode/settings.json
+@@ -0,0 +1,6 @@
++{
++  "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
++  "python.terminal.activateEnvironment": true,
++  "files.trimTrailingWhitespace": true,
++  "files.insertFinalNewline": true
++}
+diff --git a/.vscode/extensions.json b/.vscode/extensions.json
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/.vscode/extensions.json
+@@ -0,0 +1,8 @@
++{
++  "recommendations": [
++    "ms-python.python",
++    "ms-python.vscode-pylance",
++    "ms-playwright.playwright",
++    "kilocode.Kilo-Code"
++  ]
++}

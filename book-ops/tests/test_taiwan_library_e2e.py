@@ -11,4 +11,4 @@ def test_taiwan_library_search_real():
     assert results[0].source != ""
     print(f"\n[E2E] Found {len(results)} results from Taiwan Library")
     for r in results[:3]:
-        print(f"  - {r.title} ({r.source})")
+        print(f"  - {r.title} ({r.source}) | Date: {r.date}")
