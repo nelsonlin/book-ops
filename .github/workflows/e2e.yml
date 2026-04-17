@@ -30,7 +30,9 @@ jobs:
       - name: Run E2E tests
         env:
           PYTHONPATH: .
-        run: python -m pytest tests/test_taiwan_library_e2e.py -m e2e -v -s --timeout=120
+        run: |
+          python -m pytest --collect-only
+          python -m pytest tests/test_taiwan_library_e2e.py -m e2e -v -s --timeout=120
 
       - name: Upload debug artifacts
         if: always()
