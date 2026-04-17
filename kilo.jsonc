@@ -1,0 +1,8 @@
+﻿{
+  // Project-level Kilo Code rules.
+  "instructions": [
+    ".kilo/rules/00-project-rules.md",
+    ".kilo/rules/10-coding-standards.md",
+    ".kilo/rules/20-testing-rules.md"
+  ]
+}
