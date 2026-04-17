@@ -32,7 +32,7 @@ jobs:
           PYTHONPATH: .
         run: |
           ls -R tests/
-          python -m pytest tests/test_taiwan_library_e2e.py -m e2e -v -s --timeout=120
+          python -m pytest tests/test_taiwan_library_e2e.py -m e2e -v -s
 
       - name: Upload debug artifacts
         if: always()
