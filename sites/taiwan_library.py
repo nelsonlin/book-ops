@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import os
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -53,7 +54,7 @@ NO_RESULT_PATTERNS = [
     r"找不到",
 ]
 
-HEADLESS_DEFAULT = False
+HEADLESS_DEFAULT = os.getenv("CI", "false").lower() == "true"
 TIMEOUT_MS = 30000
 
 
