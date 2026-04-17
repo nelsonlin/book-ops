@@ -25,15 +25,15 @@ jobs:
           playwright install chromium --with-deps
 
       - name: Create artifact directory
-        run: mkdir -p test-results
+        run: mkdir -p output/taiwan_library
 
       - name: Run E2E tests
-        run: python -m pytest tests/ -v --timeout=120
+        run: python -m pytest tests/test_taiwan_library_e2e.py -v -s --timeout=120
 
-      - name: Upload test results
+      - name: Upload debug artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-results
-          path: test-results/
+          name: playwright-debug
+          path: output/
           if-no-files-found: warn
