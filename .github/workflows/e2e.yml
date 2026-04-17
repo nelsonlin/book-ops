@@ -18,11 +18,17 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Install Playwright browsers
-        run: playwright install chromium --with-deps
+      - name: Install Playwright browsers and CJK fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -if fonts-noto-cjk
+          playwright install chromium --with-deps
+
+      - name: Create artifact directory
+        run: mkdir -p test-results
 
       - name: Run E2E tests
-        run: pytest tests/ -v --timeout=120
+        run: python -m pytest tests/ -v --timeout=120
 
       - name: Upload test results
         if: always()
@@ -30,3 +36,4 @@ jobs:
         with:
           name: playwright-results
           path: test-results/
+          if-no-files-found: warn
