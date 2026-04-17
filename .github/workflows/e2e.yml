@@ -28,6 +28,8 @@ jobs:
         run: mkdir -p output/taiwan_library
 
       - name: Run E2E tests
+        env:
+          PYTHONPATH: .
         run: python -m pytest tests/test_taiwan_library_e2e.py -m e2e -v -s --timeout=120
 
       - name: Upload debug artifacts
