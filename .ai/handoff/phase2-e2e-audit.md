@@ -1,35 +1,34 @@
-# Audit Report: E2E Baseline (Phase 2.1)
+# Audit Report: E2E Baseline (Phase 2.1) - Finalized
 
 ## 1. Execution Status
-- **GitHub Action (e2e.yml):** ❌ **FAIL** (Run ID: 24584162766)
-- **Local Baseline:** ✅ **PASS** (1 passed in 39s)
+- **GitHub Action (e2e.yml):** ✅ **SUCCESS** (Run ID: 24585432416)
+- **Local Baseline:** ✅ **SUCCESS** (1 passed in 39s)
 
-## 2. Root Cause Analysis (Failures)
-The GitHub runner failed immediately during the `Run E2E tests` step:
-- **Error:** `__main__.py: error: unrecognized arguments: --timeout=120`
-- **Context:** Despite `pytest-timeout` being in `requirements.txt`, the `pytest` invocation on the Linux runner did not recognize the flag. This prevented any tests from running on the cloud environment.
+## 2. Environment Audit
+- **Runner:** Ubuntu 24.04 (Linux).
+- **Fonts:** `fonts-noto-cjk` correctly installed and verified via Playwright rendering.
+- **Headless Mode:** Verified (Resolved "Missing X Server" error by switching to `headless=True` for CI).
 
-## 3. Environment Audit
-### Environment Readiness
-- **Linux Runner (Ubuntu 24.04):** Ready.
-- **Python 3.11:** Installed.
-- **Playwright/Chromium:** Installed.
-- **CJK Fonts (fonts-noto-cjk):** Installed via `apt-get`.
+## 3. Findings
+### Baseline Pass Rate
+| Platform | Status | Results | Notes |
+| :--- | :--- | :--- | :--- |
+| **Taiwan Library** | ✅ PASS | 30 | Functional but logs are garbled. |
 
-### Rendering & Encoding Check
-- **Linux Runner:** Unverified (Tests did not run; no screenshots captured).
-- **Local (Windows):** 
-    - **Functional:** Success (Results found).
-    - **Visual:** Artifacts detected in console output (e.g., `憒摮詨神蝔`). This indicates that while the internal data is correct, the `pytest` capture/display logic for CJK characters needs refinement.
+### Identified Issues
+1.  **Workflow Configuration:** The `--timeout` argument was unrecognized by the runner; resolved by removing it from the command.
+2.  **Browser Mode:** Defaulted to headed mode, which crashed the Linux runner; resolved by making `HEADLESS_DEFAULT` respect the `CI` environment variable.
+3.  **Log Encoding:** GitHub Action logs show corrupted CJK characters. This is purely a display issue in the logs (internal data is correct as verified by successful assertions).
 
-## 4. Required Fixes (Phase 2.2)
-1.  **Workflow Fix:** ✅ **DONE** (Removed `--timeout=120` from `e2e.yml`).
-2.  **Environment Verification:** ⏳ **PENDING** (Run ID: 24585104893 is currently executing).
-3.  **UTF-8 Polish:** Investigate `pytest` encoding settings to ensure clean Chinese output in E2E logs.
+## 4. Handoff for Phase 2.2 (Kilo Code)
+Establish high-precision scraping rules and fix remaining `null` metadata.
+- **Reference:** `sites/taiwan_library.py`
+- **Objective:** Fix the UDN date, NTL metadata, and Cloud Bookcase titles using the "Semantic Selector" strategy established in Sprint 1 reflections.
+- **Action:** Transition from fragile paths to label-based filtering.
 
-## 5. Environment Metrics
+## 5. Metadata Metrics (Baseline)
 | Metric | Value |
 | :--- | :--- |
-| **Baseline Pass Rate** | 0% (Cloud) / 100% (Local) |
-| **Avg. Execution Time** | ~40s |
-| **CJK Support Status** | Pending Verification |
+| **Pass Rate** | 100% |
+| **CJK Support** | ✅ Verified (fonts installed) |
+| **Log Quality** | ❌ Corrupted CJK |
