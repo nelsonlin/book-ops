@@ -48,52 +48,59 @@ jobs:
           r = requests.get(f"{splash_url}/render.html?url=https://example.com&wait=2", timeout=30)
           print(f"Splash connectivity: {r.status_code}")
 
-          # Test 2: Render search results
+          # Test 2: Render search results with Lua for better rendering
           search_url = f"https://taiwanlibrarysearch.herokuapp.com/result?book={query}"
           print(f"URL: {search_url}")
 
+          lua_script = """
+          function main(splash, args)
+              splash:go(args.url)
+              splash:wait(8)
+              return {
+                  html = splash:html(),
+                  url = splash:url()
+              }
+          end
+          """
+
           r = requests.get(
-              f"{splash_url}/render.html",
-              params={"url": search_url, "wait": 4, "images": 0},
-              timeout=90
+              f"{splash_url}/execute",
+              params={"lua_source": lua_script, "url": search_url},
+              timeout=120
           )
           print(f"Status: {r.status_code}, Content: {len(r.text)} bytes")
 
-          # Debug: print first 500 chars of HTML
-          if len(blocks) == 0:
-              print(f"DEBUG HTML preview: {r.text[:500]}")
+          blocks = []
+          items = []
 
-          # If no blocks, try with Lua script for more wait time
+          if r.status_code == 200:
+              try:
+                  data = r.json()
+                  html = data.get('html', '')
+                  soup = BeautifulSoup(html, 'html.parser')
+                  blocks = soup.select('.content-block')
+                  items = soup.select('.items-body-content a, .accordion')
+                  print(f"Content blocks: {len(blocks)}")
+                  print(f"Items: {len(items)}")
+              except Exception as e:
+                  print(f"Parse error: {e}")
+          else:
+              print(f"Error: {r.text[:200]}")
+
+          # If still no blocks, try plain render with longer wait
           if len(blocks) == 0:
-              print("Trying with Lua script for better rendering...")
-              lua_script = """
-              function main(splash, args)
-                  splash:go(args.url)
-                  splash:wait(8)
-                  return {{
-                      html = splash:html(),
-                      url = splash:url()
-                  }}
-              end
-              """
+              print("Trying plain render.html with longer wait...")
               r = requests.get(
-                  f"{splash_url}/execute",
-                  params={"lua_source": lua_script, "url": search_url},
+                  f"{splash_url}/render.html",
+                  params={"url": search_url, "wait": 10, "images": 0},
                   timeout=120
               )
-              print(f"Lua status: {r.status_code}, Content: {len(r.text)} bytes")
-
-              if r.status_code == 200:
-                  try:
-                      data = r.json()
-                      html = data.get('html', '')
-                      soup = BeautifulSoup(html, 'html.parser')
-                      blocks = soup.select('.content-block')
-                      items = soup.select('.items-body-content a, .accordion')
-                      print(f"Lua Content blocks: {len(blocks)}")
-                      print(f"Lua Items: {len(items)}")
-                  except Exception as e:
-                      print(f"Lua parse error: {e}")
+              print(f"Plain render status: {r.status_code}")
+              soup = BeautifulSoup(r.text, 'html.parser')
+              blocks = soup.select('.content-block')
+              items = soup.select('.items-body-content a, .accordion')
+              print(f"Plain render blocks: {len(blocks)}")
+              print(f"Plain render items: {len(items)}")
 
           PLATFORMS = {1: "HyRead", 2: "UDN", 3: "國立公共資訊圖書館", 4: "台灣雲端書庫"}
           results = {pid: 0 for pid in PLATFORMS}
