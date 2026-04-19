@@ -45,23 +45,23 @@ jobs:
           QUERY: ${{ github.event.inputs.query }}
         run: |
           python3 << 'PYEOF'
-import requests
-from bs4 import BeautifulSoup
+            import requests
+            from bs4 import BeautifulSoup
 
-splash_url = "http://localhost:8050"
-query = "${{ env.QUERY }}"
-if not query:
-    query = "python"
+            splash_url = "http://localhost:8050"
+            query = "${{ env.QUERY }}"
+            if not query:
+                query = "python"
 
-print("=== Splash in Docker Evaluation ===")
-print(f"Query: {query}")
+            print("=== Splash in Docker Evaluation ===")
+            print(f"Query: {query}")
 
-# ── Test 1: Basic connectivity ───────────────────────────────────────────────
-r = requests.get(
-    f"{splash_url}/render.html?url=https://example.com&wait=2",
-    timeout=30
-)
-print(f"Splash connectivity: {r.status_code}")
+# Test 1: Basic connectivity
+            r = requests.get(
+                f"{splash_url}/render.html?url=https://example.com&wait=2",
+                timeout=30
+            )
+            print(f"Splash connectivity: {r.status_code}")
 
 # ── Lua script: full anti-bot hardening ─────────────────────────────────────
 # Fix #1: return {} closing brace and end keyword restored
