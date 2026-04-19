@@ -57,8 +57,8 @@ jobs:
 
             # Test 1: Basic connectivity
             r = requests.get(
-            splash_url + "/render.html?url=https://example.com&wait=2",
-            timeout=30
+                splash_url + "/render.html?url=https://example.com&wait=2",
+                timeout=30
             )
             print("Splash connectivity:", r.status_code)
 
