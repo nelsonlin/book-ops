@@ -65,6 +65,10 @@ jobs:
           print(f"Content blocks: {len(blocks)}")
           print(f"Items: {len(items)}")
 
+          # Debug: print first 500 chars of HTML
+          if len(blocks) == 0:
+              print(f"DEBUG HTML preview: {r.text[:500]}")
+
           PLATFORMS = {1: "HyRead", 2: "UDN", 3: "國立公共資訊圖書館", 4: "台灣雲端書庫"}
           results = {pid: 0 for pid in PLATFORMS}
           for block in blocks:
