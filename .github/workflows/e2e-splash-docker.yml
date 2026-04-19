@@ -122,6 +122,19 @@ jobs:
               # Show actual HTML structure
               print(f"DEBUG: Full HTML: {r.text[:1000]}")
 
+              # Try base URL first to see if homepage works
+              print("\n=== Test: Homepage ===")
+              r_home = requests.get(
+                  f"{splash_url}/render.html",
+                  params={"url": "https://taiwanlibrarysearch.herokuapp.com/", "wait": 8},
+                  timeout=120
+              )
+              print(f"Homepage status: {r_home.status_code}")
+              soup_home = BeautifulSoup(r_home.text, 'html.parser')
+              home_divs = soup_home.select('div')
+              print(f"Homepage divs: {len(home_divs)}")
+              print(f"Homepage body text: {soup_home.body.get_text()[:100] if soup_home.body else 'No body'}")
+
           PLATFORMS = {1: "HyRead", 2: "UDN", 3: "國立公共資訊圖書館", 4: "台灣雲端書庫"}
           results = {pid: 0 for pid in PLATFORMS}
           for block in blocks:
