@@ -45,199 +45,167 @@ jobs:
           QUERY: ${{ github.event.inputs.query }}
         run: |
           python3 << 'PYEOF'
-            import requests
-            from bs4 import BeautifulSoup
+          import requests
+          from bs4 import BeautifulSoup
 
-            splash_url = "http://localhost:8050"
-            query = "${{ env.QUERY }}"
-            if not query:
-                query = "python"
+          splash_url = "http://localhost:8050"
+          query = "${{ env.QUERY }}"
+          if not query:
+              query = "python"
 
-            print("=== Splash in Docker Evaluation ===")
-            print(f"Query: {query}")
+          print("=== Splash in Docker Evaluation ===")
+          print(f"Query: {query}")
 
-# Test 1: Basic connectivity
-            r = requests.get(
-                f"{splash_url}/render.html?url=https://example.com&wait=2",
-                timeout=30
+          r = requests.get(
+              f"{splash_url}/render.html?url=https://example.com&wait=2",
+              timeout=30
+          )
+          print(f"Splash connectivity: {r.status_code}")
+
+          lua_script = """
+          function main(splash, args)
+            splash:set_user_agent(
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " ..
+              "AppleWebKit/537.36 (KHTML, like Gecko) " ..
+              "Chrome/120.0.0.0 Safari/537.36"
             )
-            print(f"Splash connectivity: {r.status_code}")
 
-# ── Lua script: full anti-bot hardening ─────────────────────────────────────
-# Fix #1: return {} closing brace and end keyword restored
-# Fix #2: set_user_agent() + on_request() instead of set_custom_headers()
-# Fix #3: viewport set to real desktop size
-# Fix #4: double wait + scroll to trigger async/lazy content
-lua_script = """
-function main(splash, args)
-  -- set UA at browser level only (does not clobber internal headers)
-  splash:set_user_agent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " ..
-    "AppleWebKit/537.36 (KHTML, like Gecko) " ..
-    "Chrome/120.0.0.0 Safari/537.36"
-  )
+            splash:on_request(function(request)
+              request:set_header("Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9," ..
+                "image/avif,image/webp,image/apng,*/*;q=0.8")
+              request:set_header("Accept-Language", "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7")
+              request:set_header("Accept-Encoding", "gzip, deflate, br")
+              request:set_header("Referer", "https://taiwanlibrarysearch.herokuapp.com/")
+              request:set_header("sec-ch-ua",
+                '"Chromium";v="120", "Google Chrome";v="120", "Not_A Brand";v="24"')
+              request:set_header("sec-ch-ua-mobile", "?0")
+              request:set_header("sec-ch-ua-platform", '"Windows"')
+              request:set_header("sec-fetch-dest", "document")
+              request:set_header("sec-fetch-mode", "navigate")
+              request:set_header("sec-fetch-site", "none")
+              request:set_header("sec-fetch-user", "?1")
+              request:set_header("Upgrade-Insecure-Requests", "1")
+            end)
 
-  -- inject Chrome client hints + accept headers per request
-  splash:on_request(function(request)
-    request:set_header("Accept",
-      "text/html,application/xhtml+xml,application/xml;q=0.9," ..
-      "image/avif,image/webp,image/apng,*/*;q=0.8")
-    request:set_header("Accept-Language", "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7")
-    request:set_header("Accept-Encoding", "gzip, deflate, br")
-    request:set_header("Referer", "https://taiwanlibrarysearch.herokuapp.com/")
-    request:set_header("sec-ch-ua",
-      '"Chromium";v="120", "Google Chrome";v="120", "Not_A Brand";v="24"')
-    request:set_header("sec-ch-ua-mobile", "?0")
-    request:set_header("sec-ch-ua-platform", '"Windows"')
-    request:set_header("sec-fetch-dest", "document")
-    request:set_header("sec-fetch-mode", "navigate")
-    request:set_header("sec-fetch-site", "none")
-    request:set_header("sec-fetch-user", "?1")
-    request:set_header("Upgrade-Insecure-Requests", "1")
-  end)
+            splash:set_viewport_size(1366, 768)
+            splash:set_viewport_full()
 
-  -- full desktop viewport so layout JS does not detect headless stub
-  splash:set_viewport_size(1366, 768)
-  splash:set_viewport_full()
+            local ok, err = splash:go(args.url)
+            if not ok then
+              return {error = err, html = ""}
+            end
 
-  local ok, err = splash:go(args.url)
-  if not ok then
-    return {error = err, html = ""}
-  end
+            splash:wait(5)
+            splash:runjs("window.scrollTo(0, document.body.scrollHeight)")
+            splash:wait(5)
 
-  -- first wait: initial React/SPA render
-  splash:wait(5)
+            return {
+              html = splash:html(),
+              url  = splash:url()
+            }
+          end
+          """
 
-  -- scroll to bottom to trigger lazy-load / infinite-scroll XHR fetches
-  splash:runjs("window.scrollTo(0, document.body.scrollHeight)")
+          search_url = f"https://taiwanlibrarysearch.herokuapp.com/result?book={query}"
+          print(f"Target URL: {search_url}")
 
-  -- second wait: async platform responses (HyRead, UDN, etc.)
-  splash:wait(5)
+          ANTIBOT_PHRASES = [
+              "enable javascript", "javascript is required",
+              "javascript is disabled", "you need to enable javascript",
+              "cf-wrapper", "challenge", "datadome", "access denied"
+          ]
 
-  return {
-    html = splash:html(),
-    url  = splash:url()
-  }
-end
-"""
+          blocks, items, html = [], [], ""
 
-search_url = f"https://taiwanlibrarysearch.herokuapp.com/result?book={query}"
-print(f"Target URL: {search_url}")
+          r = requests.get(
+              f"{splash_url}/execute",
+              params={"lua_source": lua_script, "url": search_url},
+              timeout=120
+          )
+          print(f"Lua execute status: {r.status_code}, size: {len(r.text)} bytes")
 
-# shared anti-bot phrase list used in both Lua and fallback paths
-ANTIBOT_PHRASES = [
-    "enable javascript", "javascript is required",
-    "javascript is disabled", "you need to enable javascript",
-    "cf-wrapper", "challenge", "datadome", "access denied"
-]
+          if r.status_code == 200:
+              try:
+                  data = r.json()
+                  html = data.get("html", "")
+                  soup = BeautifulSoup(html, "html.parser")
+                  blocks = soup.select(".content-block")
+                  items  = soup.select(".items-body-content a, .accordion")
+                  print(f"Content blocks: {len(blocks)}, Items: {len(items)}")
+                  html_lower = html.lower()
+                  for phrase in ANTIBOT_PHRASES:
+                      if phrase in html_lower:
+                          print(f"WARNING: Anti-bot/JS phrase detected: {phrase}")
+              except Exception as e:
+                  print(f"JSON parse error: {e}")
+                  print(f"Raw response (200 chars): {r.text[:200]}")
+          else:
+              print(f"Lua execute error: {r.text[:200]}")
 
-blocks, items, html = [], [], ""
+          if len(blocks) == 0:
+              print("\nFallback: plain render.html with wait=12")
+              r = requests.get(
+                  f"{splash_url}/render.html",
+                  params={
+                      "url":        search_url,
+                      "wait":       12,
+                      "images":     0,
+                      "user_agent": (
+                          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/120.0.0.0 Safari/537.36"
+                      ),
+                  },
+                  timeout=120
+              )
+              print(f"Fallback render status: {r.status_code}, size: {len(r.text)} bytes")
+              soup   = BeautifulSoup(r.text, "html.parser")
+              blocks = soup.select(".content-block")
+              items  = soup.select(".items-body-content a, .accordion")
+              html   = r.text
+              print(f"Fallback blocks: {len(blocks)}, items: {len(items)}")
+              html_lower = r.text.lower()
+              for phrase in ANTIBOT_PHRASES:
+                  if phrase in html_lower:
+                      print(f"WARNING: Anti-bot/JS phrase detected: {phrase}")
 
-# ── Attempt 1: Lua /execute endpoint ────────────────────────────────────────
-r = requests.get(
-    f"{splash_url}/execute",
-    params={"lua_source": lua_script, "url": search_url},
-    timeout=120
-)  # Fix #2: closing parenthesis restored
-print(f"Lua execute status: {r.status_code}, size: {len(r.text)} bytes")
+          print(f"\nDEBUG: Total chars={len(html)}")
+          soup_debug = BeautifulSoup(html, "html.parser")
+          print(f"DEBUG: divs={len(soup_debug.select('div'))}, scripts={len(soup_debug.select('script'))}")
+          body_text = soup_debug.body.get_text()[:200] if soup_debug.body else "No body"
+          print(f"DEBUG: Body text sample: {body_text}")
+          print(f"DEBUG: Full HTML (first 1000 chars):\n{html[:1000]}")
 
-if r.status_code == 200:
-    try:
-        data = r.json()
-        html = data.get("html", "")
-        soup = BeautifulSoup(html, "html.parser")
-        blocks = soup.select(".content-block")
-        items  = soup.select(".items-body-content a, .accordion")
-        print(f"Content blocks: {len(blocks)}, Items: {len(items)}")
-        html_lower = html.lower()
-        # Fix #3: full anti-bot detection in Lua path
-        for phrase in ANTIBOT_PHRASES:
-            if phrase in html_lower:
-                print(f"WARNING: Anti-bot/JS phrase detected → '{phrase}'")
-    except Exception as e:
-        print(f"JSON parse error: {e}")
-        print(f"Raw response (200 chars): {r.text[:200]}")
-else:
-    print(f"Lua execute error: {r.text[:200]}")
+          print("\n=== Homepage sanity check ===")
+          r_home = requests.get(
+              f"{splash_url}/render.html",
+              params={"url": "https://taiwanlibrarysearch.herokuapp.com/", "wait": 8},
+              timeout=60
+          )
+          soup_home = BeautifulSoup(r_home.text, "html.parser")
+          print(f"Homepage status={r_home.status_code}, divs={len(soup_home.select('div'))}")
 
-# ── Attempt 2: plain render.html fallback ────────────────────────────────────
-if len(blocks) == 0:
-    print("\nFallback → plain render.html with wait=12 ...")
-    r = requests.get(
-        f"{splash_url}/render.html",
-        params={
-            "url":        search_url,
-            "wait":       12,
-            "images":     0,
-            "user_agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-        },
-        timeout=120
-    )  # Fix #2: closing parenthesis restored
-    print(f"Fallback render status: {r.status_code}, size: {len(r.text)} bytes")
-    soup   = BeautifulSoup(r.text, "html.parser")
-    blocks = soup.select(".content-block")
-    items  = soup.select(".items-body-content a, .accordion")
-    html   = r.text
-    print(f"Fallback blocks: {len(blocks)}, items: {len(items)}")
-    html_lower = r.text.lower()
-    for phrase in ANTIBOT_PHRASES:
-        if phrase in html_lower:
-            print(f"WARNING: Anti-bot/JS phrase detected → '{phrase}'")
+          PLATFORMS = {1: "HyRead", 2: "UDN", 3: "國立公共資訊圖書館", 4: "台灣雲端書庫"}
+          results = {pid: 0 for pid in PLATFORMS}
+          for block in blocks:
+              text = block.get_text()
+              for pid, name in PLATFORMS.items():
+                  if name in text:
+                      results[pid] += 1
 
-# ── Debug dump ────────────────────────────────────────────────────────────────
-print(f"\nDEBUG: Total chars={len(html)}")
-soup_debug = BeautifulSoup(html, "html.parser")
-print(f"DEBUG: divs={len(soup_debug.select('div'))}, "
-      f"scripts={len(soup_debug.select('script'))}, "
-      f"noscripts={len(soup_debug.select('noscript'))}")
-body_text = soup_debug.body.get_text()[:200] if soup_debug.body else "No body"
-print(f"DEBUG: Body text sample → {body_text}")
-srcs = [s.get("src") or "inline" for s in soup_debug.select("script")[:5]]
-print(f"DEBUG: Script sources → {srcs}")
-noscripts = soup_debug.select("noscript")
-for i, ns in enumerate(noscripts[:3]):
-    ns_text = ns.get_text().strip()
-    if ns_text:
-        print(f"DEBUG: Noscript[{i}] → {ns_text[:100]}")
-print(f"DEBUG: Full HTML (first 1000 chars):\n{html[:1000]}")
+          print("\n=== Results by Platform ===")
+          for pid, name in PLATFORMS.items():
+              print(f"  {name}: {results[pid]} blocks")
 
-# ── Homepage sanity check ─────────────────────────────────────────────────────
-print("\n=== Homepage sanity check ===")
-r_home = requests.get(
-    f"{splash_url}/render.html",
-    params={"url": "https://taiwanlibrarysearch.herokuapp.com/", "wait": 8},
-    timeout=60
-)  # Fix #2: closing parenthesis restored
-soup_home = BeautifulSoup(r_home.text, "html.parser")
-print(f"Homepage status={r_home.status_code}, "
-      f"divs={len(soup_home.select('div'))}, "
-      f"body={soup_home.body.get_text()[:100] if soup_home.body else 'No body'}")
-
-# ── Results by platform ───────────────────────────────────────────────────────
-PLATFORMS = {1: "HyRead", 2: "UDN", 3: "國立公共資訊圖書館", 4: "台灣雲端書庫"}
-results = {pid: 0 for pid in PLATFORMS}
-for block in blocks:
-    text = block.get_text()
-    for pid, name in PLATFORMS.items():
-        if name in text:
-            results[pid] += 1
-
-print("\n=== Results by Platform ===")
-for pid, name in PLATFORMS.items():
-    print(f"  {name}: {results[pid]} blocks")
-
-platforms_hit = sum(1 for v in results.values() if v > 0)
-print(f"\n=== Acceptance ===")
-print(f"Platforms: {platforms_hit}/4, Items: {len(items)}")
-if platforms_hit >= 3 and len(items) >= 10:
-    print("PASS: >=3 platforms, >=10 items")
-else:
-    print("NEEDS INVESTIGATION")
-PYEOF
+          platforms_hit = sum(1 for v in results.values() if v > 0)
+          print(f"\n=== Acceptance ===")
+          print(f"Platforms: {platforms_hit}/4, Items: {len(items)}")
+          if platforms_hit >= 3 and len(items) >= 10:
+              print("PASS: >=3 platforms, >=10 items")
+          else:
+              print("NEEDS INVESTIGATION")
+          PYEOF
 
       - name: Cleanup
         if: always()
