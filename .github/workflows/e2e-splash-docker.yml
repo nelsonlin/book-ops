@@ -108,6 +108,20 @@ jobs:
               print(f"DEBUG: All divs: {len(soup.select('div'))}")
               print(f"DEBUG: Body text sample: {soup.body.get_text()[:200] if soup.body else 'No body'}")
 
+              # Check for script tags - what JS is the page using?
+              scripts = soup.select('script')
+              print(f"DEBUG: Script tags: {len(scripts)}")
+              if scripts:
+                  srcs = [s.get('src') or 'inline' for s in scripts[:5]]
+                  print(f"DEBUG: Script sources: {srcs}")
+
+              # Check for noscript or anti-bot messages
+              noscript = soup.select('noscript')
+              print(f"DEBUG: Noscript tags: {len(noscript)}")
+
+              # Show actual HTML structure
+              print(f"DEBUG: Full HTML: {r.text[:1000]}")
+
           PLATFORMS = {1: "HyRead", 2: "UDN", 3: "國立公共資訊圖書館", 4: "台灣雲端書庫"}
           results = {pid: 0 for pid in PLATFORMS}
           for block in blocks:
