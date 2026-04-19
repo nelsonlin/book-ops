@@ -1,0 +1,132 @@
+name: E2E (Splash)
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'Search query'
+        required: true
+        default: 'python'
+
+jobs:
+  splash-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Test remote Splash with search
+        env:
+          SPLASH_URL: ${{ secrets.SPLASH_URL }}
+          QUERY: ${{ github.event.inputs.query }}
+        run: |
+          QUERY="${QUERY:-python}"
+          echo "Search query: $QUERY"
+          
+          python3 << EOF
+          import os
+          import requests
+          from bs4 import BeautifulSoup
+
+          splash_url = os.getenv('SPLASH_URL', 'https://splash.scrape.do')
+          query = os.getenv('QUERY', 'python')
+          
+          print(f"=== Splash Evaluation: Taiwan Library Search ===")
+          print(f"Splash endpoint: {splash_url}")
+          print(f"Search query: {query}")
+          print()
+
+          # Platform IDs from taiwan_library.py
+          PLATFORMS = {
+              1: "HyRead",
+              2: "UDN", 
+              3: "國立公共資訊圖書館/NTL",
+              4: "台灣雲端書庫"
+          }
+
+          # Test 1: Verify Splash works with example.com
+          print("--- Test 1: Verify Splash connectivity ---")
+          r = requests.get(
+              f'{splash_url}/render.html',
+              params={'url': 'https://example.com', 'wait': 2},
+              timeout=30
+          )
+          print(f"Splash connectivity: {r.status_code} ({len(r.text)} bytes)")
+          if r.status_code != 200:
+              print(f"ERROR: Splash not accessible")
+              exit(1)
+          print()
+
+          # Test 2: Direct URL pattern - no form submission needed
+          search_url = f"https://taiwanlibrarysearch.herokuapp.com/result?book={query}"
+          print(f"--- Test 2: Render search results ---")
+          print(f"URL: {search_url}")
+          
+          r = requests.get(
+              f'{splash_url}/render.html',
+              params={
+                  'url': search_url,
+                  'wait': 4,
+                  'images': 0
+              },
+              timeout=90
+          )
+          print(f"Status: {r.status_code}, Content: {len(r.text)} bytes")
+          
+          results_by_platform = {pid: 0 for pid in PLATFORMS}
+          total_results = 0
+          
+          if r.status_code == 200:
+              soup = BeautifulSoup(r.text, 'html.parser')
+              
+              # Count platform content blocks
+              content_blocks = soup.select('.content-block')
+              print(f"Content blocks: {len(content_blocks)}")
+              
+              # Identify platforms with data
+              for block in content_blocks:
+                  block_text = block.get_text()
+                  for pid, name in PLATFORMS.items():
+                      if name in block_text or (pid == 3 and "國立" in block_text):
+                          results_by_platform[pid] += 1
+              
+              # Count items - selectors from taiwan_library.py
+              items = soup.select('.items-body-content a, .accordion, div.title, [class*="accordion"]')
+              total_results = len(items)
+              print(f"Total items: {total_results}")
+              
+              if total_results > 0:
+                  sample = [i.get_text(strip=True)[:40] for i in items[:5] if i.get_text(strip=True)]
+                  print(f"Sample items: {sample}")
+          else:
+              print(f"Error: {r.text[:200]}")
+          print()
+
+          # Summary
+          print("=== Results by Platform ===")
+          for pid, name in PLATFORMS.items():
+              count = results_by_platform[pid]
+              status = "✓ PASS" if count > 0 else "✗ NO DATA"
+              print(f"  {name}: {count} blocks {status}")
+          
+          print()
+          platforms_with_data = sum(1 for v in results_by_platform.values() if v > 0)
+          print(f"=== Acceptance ===")
+          print(f"Platforms with data: {platforms_with_data}/4")
+          print(f"Total items: {total_results}")
+          
+          if platforms_with_data >= 3 and total_results >= 10:
+              print("✓ PASS: ≥3 platforms, ≥10 items")
+          else:
+              print("✗ NEEDS INVESTIGATION")
+              if platforms_with_data < 3:
+                  print(f"  Only {platforms_with_data}/4 platforms")
+              if total_results < 10:
+                  print(f"  Only {total_results} items (need ≥10)")
+          EOF
