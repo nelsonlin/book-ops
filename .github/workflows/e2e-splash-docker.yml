@@ -20,8 +20,15 @@ jobs:
 
       - name: Start Splash container
         run: |
-          docker run -d --name splash -p 8050:8050 scrapinghub/splash
-          sleep 15
+          # Use health check instead of fixed sleep
+          docker run -d --name splash -p 8050:8050 scrapinghub/splash:3.5
+          for i in {1..30}; do
+            if curl -s http://localhost:8050 > /dev/null 2>&1; then
+              echo "Splash ready after $i seconds"
+              break
+            fi
+            sleep 1
+          done
           docker ps
 
       - name: Verify Splash
@@ -54,19 +61,37 @@ jobs:
 
           lua_script = """
           function main(splash, args)
-              -- Set headers to mimic real browser (anti-bot fingerprint)
-              splash:set_custom_headers({
-                  ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                  ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                  ["Accept-Language"] = "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
-                  ["Accept-Encoding"] = "gzip, deflate, br",
-                  ["Referer"] = "https://taiwanlibrarysearch.herokuapp.com/",
-                  ["Connection"] = "keep-alive",
-                  ["Upgrade-Insecure-Requests"] = "1"
-              })
+              -- Fix #2: Use set_user_agent instead of replacing all headers
+              splash:set_user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+              
+              -- Fix #3: Set viewport to match real desktop browser
+              splash:set_viewport_size(1366, 768)
+              
+              -- Fix #2: Add Chrome client hints via on_request
+              splash:on_request(function(request)
+                  request:set_header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+                  request:set_header("Accept-Language", "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7")
+                  request:set_header("Accept-Encoding", "gzip, deflate, br")
+                  request:set_header("Referer", "https://taiwanlibrarysearch.herokuapp.com/")
+                  request:set_header("sec-ch-ua", "\"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\", \"Not_A Brand\";v=\"24\"")
+                  request:set_header("sec-ch-ua-mobile", "?0")
+                  request:set_header("sec-ch-ua-platform", "\"Windows\"")
+                  request:set_header("sec-fetch-dest", "document")
+                  request:set_header("sec-fetch-mode", "navigate")
+                  request:set_header("sec-fetch-site", "none")
+                  request:set_header("sec-fetch-user", "?1")
+                  request:set_header("Upgrade-Insecure-Requests", "1")
+              end)
               
               splash:go(args.url)
-              splash:wait(8)
+              
+              -- Fix #4: Double wait for async content
+              splash:wait(5)
+              
+              -- Trigger scroll to load lazy content
+              splash:runjs("window.scrollTo(0, document.body.scrollHeight)")
+              splash:wait(5)
+              
               return {
                   html = splash:html(),
                   url = splash:url()
@@ -103,12 +128,12 @@ jobs:
           else:
               print(f"Error: {r.text[:200]}")
 
-          # If still no blocks, try plain render with longer wait
+          # If still no blocks, try plain render with longer wait (Fix #4)
           if len(blocks) == 0:
-              print("Trying plain render.html with longer wait...")
+              print("Trying plain render.html with longer wait (12s)...")
               r = requests.get(
                   f"{splash_url}/render.html",
-                  params={"url": search_url, "wait": 10, "images": 0},
+                  params={"url": search_url, "wait": 12, "images": 0},
                   timeout=120
               )
               print(f"Plain render status: {r.status_code}")
