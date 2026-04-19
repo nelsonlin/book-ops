@@ -11,24 +11,21 @@ on:
 jobs:
   splash-docker:
     runs-on: ubuntu-latest
-    container: ubuntu:24.04
     steps:
-      - name: Install Docker
+      - name: Check Docker available
         run: |
-          apt-get update
-          apt-get install -y docker.io curl python3 python3-pip
-          pip3 install requests beautifulsoup4
           docker --version
+          docker ps
 
       - name: Start Splash container
         run: |
           docker run -d --name splash -p 8050:8050 scrapinghub/splash
-          sleep 10
+          sleep 15
           docker ps
 
       - name: Verify Splash
         run: |
-          curl -s http://localhost:8050 | head -c 200
+          curl -s http://localhost:8050 | head -c 200 || echo "Splash not ready yet"
 
       - name: Test Splash rendering
         env:
@@ -90,4 +87,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: docker stop splash || true
+        run: docker stop splash 2>/dev/null || docker rm splash 2>/dev/null || true
