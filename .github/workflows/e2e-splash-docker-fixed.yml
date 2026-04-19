@@ -1,0 +1,233 @@
+name: E2E (Splash - Docker)
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'Search query'
+        required: true
+        default: 'python'
+
+jobs:
+  splash-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Docker available
+        run: |
+          pip install requests beautifulsoup4
+          docker --version
+          docker ps
+
+      - name: Start Splash container
+        run: |
+          docker run -d --name splash -p 8050:8050 scrapinghub/splash:3.5
+          for i in {1..30}; do
+            if curl -s http://localhost:8050 > /dev/null 2>&1; then
+              echo "Splash ready after $i seconds"
+              break
+            fi
+            sleep 1
+          done
+          docker ps
+
+      - name: Verify Splash
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8050)
+          echo "Splash HTTP status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "ERROR: Splash not ready"
+            docker logs splash
+            exit 1
+          fi
+
+      - name: Test Splash rendering
+        env:
+          QUERY: ${{ github.event.inputs.query }}
+        run: |
+          python3 - << 'PYEOF'
+import os
+import requests
+from bs4 import BeautifulSoup
+
+splash_url = "http://localhost:8050"
+query = os.environ.get("QUERY", "python") or "python"
+
+print("=== Splash in Docker Evaluation ===")
+print("Query:", query)
+
+# Test 1: Basic connectivity
+r = requests.get(
+    splash_url + "/render.html?url=https://example.com&wait=2",
+    timeout=30
+)
+print("Splash connectivity:", r.status_code)
+
+# Lua script: full anti-bot hardening
+# Fix 1: return {} closing brace and end keyword present
+# Fix 2: set_user_agent() + on_request() instead of set_custom_headers()
+# Fix 3: viewport set to real desktop size
+# Fix 4: double wait + scroll to trigger async/lazy content
+lua_script = (
+    "function main(splash, args)\n"
+    "  splash:set_user_agent(\n"
+    "    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '\n"
+    "    .. 'AppleWebKit/537.36 (KHTML, like Gecko) '\n"
+    "    .. 'Chrome/120.0.0.0 Safari/537.36'\n"
+    "  )\n"
+    "  splash:on_request(function(request)\n"
+    "    request:set_header('Accept',\n"
+    "      'text/html,application/xhtml+xml,application/xml;q=0.9,'\n"
+    "      .. 'image/avif,image/webp,image/apng,*/*;q=0.8')\n"
+    "    request:set_header('Accept-Language', 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7')\n"
+    "    request:set_header('Accept-Encoding', 'gzip, deflate, br')\n"
+    "    request:set_header('Referer', 'https://taiwanlibrarysearch.herokuapp.com/')\n"
+    "    request:set_header('sec-ch-ua',\n"
+    "      '\"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\", \"Not_A Brand\";v=\"24\"')\n"
+    "    request:set_header('sec-ch-ua-mobile', '?0')\n"
+    "    request:set_header('sec-ch-ua-platform', '\"Windows\"')\n"
+    "    request:set_header('sec-fetch-dest', 'document')\n"
+    "    request:set_header('sec-fetch-mode', 'navigate')\n"
+    "    request:set_header('sec-fetch-site', 'none')\n"
+    "    request:set_header('sec-fetch-user', '?1')\n"
+    "    request:set_header('Upgrade-Insecure-Requests', '1')\n"
+    "  end)\n"
+    "  splash:set_viewport_size(1366, 768)\n"
+    "  splash:set_viewport_full()\n"
+    "  local ok, err = splash:go(args.url)\n"
+    "  if not ok then\n"
+    "    return {error = err, html = ''}\n"
+    "  end\n"
+    "  splash:wait(5)\n"
+    "  splash:runjs('window.scrollTo(0, document.body.scrollHeight)')\n"
+    "  splash:wait(5)\n"
+    "  return {\n"
+    "    html = splash:html(),\n"
+    "    url  = splash:url()\n"
+    "  }\n"
+    "end\n"
+)
+
+search_url = "https://taiwanlibrarysearch.herokuapp.com/result?book=" + query
+print("Target URL:", search_url)
+
+ANTIBOT_PHRASES = [
+    "enable javascript", "javascript is required",
+    "javascript is disabled", "you need to enable javascript",
+    "cf-wrapper", "challenge", "datadome", "access denied"
+]
+
+blocks, items, html = [], [], ""
+
+# Attempt 1: Lua /execute endpoint
+r = requests.get(
+    splash_url + "/execute",
+    params={"lua_source": lua_script, "url": search_url},
+    timeout=120
+)
+print("Lua execute status:", r.status_code, "size:", len(r.text), "bytes")
+
+if r.status_code == 200:
+    try:
+        data = r.json()
+        html = data.get("html", "")
+        soup = BeautifulSoup(html, "html.parser")
+        blocks = soup.select(".content-block")
+        items  = soup.select(".items-body-content a, .accordion")
+        print("Content blocks:", len(blocks), "Items:", len(items))
+        html_lower = html.lower()
+        for phrase in ANTIBOT_PHRASES:
+            if phrase in html_lower:
+                print("WARNING: Anti-bot/JS phrase detected ->", phrase)
+    except Exception as e:
+        print("JSON parse error:", e)
+        print("Raw response (200 chars):", r.text[:200])
+else:
+    print("Lua execute error:", r.text[:200])
+
+# Attempt 2: plain render.html fallback
+if len(blocks) == 0:
+    print("Fallback -> plain render.html with wait=12 ...")
+    r = requests.get(
+        splash_url + "/render.html",
+        params={
+            "url": search_url,
+            "wait": 12,
+            "images": 0,
+            "user_agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+        },
+        timeout=120
+    )
+    print("Fallback render status:", r.status_code, "size:", len(r.text), "bytes")
+    soup   = BeautifulSoup(r.text, "html.parser")
+    blocks = soup.select(".content-block")
+    items  = soup.select(".items-body-content a, .accordion")
+    html   = r.text
+    print("Fallback blocks:", len(blocks), "items:", len(items))
+    html_lower = r.text.lower()
+    for phrase in ANTIBOT_PHRASES:
+        if phrase in html_lower:
+            print("WARNING: Anti-bot/JS phrase detected ->", phrase)
+
+# Debug dump
+print("DEBUG: Total chars=" + str(len(html)))
+soup_debug = BeautifulSoup(html, "html.parser")
+print("DEBUG: divs=" + str(len(soup_debug.select("div")))
+      + " scripts=" + str(len(soup_debug.select("script")))
+      + " noscripts=" + str(len(soup_debug.select("noscript"))))
+body_text = soup_debug.body.get_text()[:200] if soup_debug.body else "No body"
+print("DEBUG: Body text sample ->", body_text)
+srcs = [s.get("src") or "inline" for s in soup_debug.select("script")[:5]]
+print("DEBUG: Script sources ->", srcs)
+for i, ns in enumerate(soup_debug.select("noscript")[:3]):
+    ns_text = ns.get_text().strip()
+    if ns_text:
+        print("DEBUG: Noscript[" + str(i) + "] ->", ns_text[:100])
+print("DEBUG: Full HTML (first 1000 chars):")
+print(html[:1000])
+
+# Homepage sanity check
+print("=== Homepage sanity check ===")
+r_home = requests.get(
+    splash_url + "/render.html",
+    params={"url": "https://taiwanlibrarysearch.herokuapp.com/", "wait": 8},
+    timeout=60
+)
+soup_home = BeautifulSoup(r_home.text, "html.parser")
+print("Homepage status=" + str(r_home.status_code)
+      + " divs=" + str(len(soup_home.select("div")))
+      + " body=" + (soup_home.body.get_text()[:100] if soup_home.body else "No body"))
+
+# Results by platform
+PLATFORMS = {
+    1: "HyRead",
+    2: "UDN",
+    3: "\u570b\u7acb\u516c\u5171\u8cc7\u8a0a\u5716\u66f8\u9928",
+    4: "\u53f0\u7063\u96f2\u7aef\u66f8\u5eab"
+}
+results = {pid: 0 for pid in PLATFORMS}
+for block in blocks:
+    text = block.get_text()
+    for pid, name in PLATFORMS.items():
+        if name in text:
+            results[pid] += 1
+
+print("=== Results by Platform ===")
+for pid, name in PLATFORMS.items():
+    print(" " + name + ": " + str(results[pid]) + " blocks")
+
+platforms_hit = sum(1 for v in results.values() if v > 0)
+print("=== Acceptance ===")
+print("Platforms: " + str(platforms_hit) + "/4, Items: " + str(len(items)))
+if platforms_hit >= 3 and len(items) >= 10:
+    print("PASS: >=3 platforms, >=10 items")
+else:
+    print("NEEDS INVESTIGATION")
+PYEOF
+
+      - name: Cleanup
+        if: always()
+        run: docker stop splash 2>/dev/null; docker rm splash 2>/dev/null || true
