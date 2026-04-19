@@ -56,19 +56,19 @@ jobs:
             print("=== Splash in Docker Evaluation ===")
             print(f"Query: {query}")
 
-# Test 1: Basic connectivity
+            # Test 1: Basic connectivity
             r = requests.get(
                 f"{splash_url}/render.html?url=https://example.com&wait=2",
                 timeout=30
             )
             print(f"Splash connectivity: {r.status_code}")
 
-# ── Lua script: full anti-bot hardening ─────────────────────────────────────
-# Fix #1: return {} closing brace and end keyword restored
-# Fix #2: set_user_agent() + on_request() instead of set_custom_headers()
-# Fix #3: viewport set to real desktop size
-# Fix #4: double wait + scroll to trigger async/lazy content
-lua_script = """
+            # Lua script: full anti-bot hardening
+            # Fix #1: return {} closing brace and end keyword restored
+            # Fix #2: set_user_agent() + on_request() instead of set_custom_headers()
+            # Fix #3: viewport set to real desktop size
+            # Fix #4: double wait + scroll to trigger async/lazy content
+            lua_script = """
 function main(splash, args)
   -- set UA at browser level only (does not clobber internal headers)
   splash:set_user_agent(
@@ -122,31 +122,31 @@ end
 """
 
 search_url = f"https://taiwanlibrarysearch.herokuapp.com/result?book={query}"
-print(f"Target URL: {search_url}")
+            print(f"Target URL: {search_url}")
 
-# shared anti-bot phrase list used in both Lua and fallback paths
-ANTIBOT_PHRASES = [
-    "enable javascript", "javascript is required",
-    "javascript is disabled", "you need to enable javascript",
-    "cf-wrapper", "challenge", "datadome", "access denied"
-]
+            # shared anti-bot phrase list used in both Lua and fallback paths
+            ANTIBOT_PHRASES = [
+                "enable javascript", "javascript is required",
+                "javascript is disabled", "you need to enable javascript",
+                "cf-wrapper", "challenge", "datadome", "access denied"
+            ]
 
-blocks, items, html = [], [], ""
+            blocks, items, html = [], [], ""
 
-# ── Attempt 1: Lua /execute endpoint ────────────────────────────────────────
-r = requests.get(
-    f"{splash_url}/execute",
-    params={"lua_source": lua_script, "url": search_url},
-    timeout=120
-)  # Fix #2: closing parenthesis restored
-print(f"Lua execute status: {r.status_code}, size: {len(r.text)} bytes")
+            # Attempt 1: Lua /execute endpoint
+            r = requests.get(
+                f"{splash_url}/execute",
+                params={"lua_source": lua_script, "url": search_url},
+                timeout=120
+            )
+            print(f"Lua execute status: {r.status_code}, size: {len(r.text)} bytes")
 
-if r.status_code == 200:
-    try:
-        data = r.json()
-        html = data.get("html", "")
-        soup = BeautifulSoup(html, "html.parser")
-        blocks = soup.select(".content-block")
+            if r.status_code == 200:
+                try:
+                    data = r.json()
+                    html = data.get("html", "")
+                    soup = BeautifulSoup(html, "html.parser")
+                    blocks = soup.select(".content-block")
         items  = soup.select(".items-body-content a, .accordion")
         print(f"Content blocks: {len(blocks)}, Items: {len(items)}")
         html_lower = html.lower()
