@@ -82,6 +82,11 @@ jobs:
                   items = soup.select('.items-body-content a, .accordion')
                   print(f"Content blocks: {len(blocks)}")
                   print(f"Items: {len(items)}")
+                  
+                  # Check for JS required message in Lua result
+                  html_lower = html.lower()
+                  if "enable javascript" in html_lower or "javascript is required" in html_lower:
+                      print("DETECTED: Site requires JavaScript!")
               except Exception as e:
                   print(f"Parse error: {e}")
           else:
@@ -104,6 +109,19 @@ jobs:
 
               # Debug: check if page has any content at all
               print(f"DEBUG: Page has {len(r.text)} chars, looking for 'content' class...")
+              
+              # Check for anti-bot / JS required messages
+              html_lower = r.text.lower()
+              js_messages = [
+                  "you need to enable javascript",
+                  "javascript is required",
+                  "enable javascript",
+                  "javascript is disabled"
+              ]
+              for msg in js_messages:
+                  if msg in html_lower:
+                      print(f"DETECTED: '{msg}' message found!")
+              
               print(f"DEBUG: All divs with class containing 'content': {len(soup.select('[class*=\"content\"]'))}")
               print(f"DEBUG: All divs: {len(soup.select('div'))}")
               print(f"DEBUG: Body text sample: {soup.body.get_text()[:200] if soup.body else 'No body'}")
@@ -118,6 +136,11 @@ jobs:
               # Check for noscript or anti-bot messages
               noscript = soup.select('noscript')
               print(f"DEBUG: Noscript tags: {len(noscript)}")
+              if noscript:
+                  for i, ns in enumerate(noscript[:3]):
+                      ns_text = ns.get_text().strip()
+                      if ns_text:
+                          print(f"DEBUG: Noscript[{i}] text: {ns_text[:100]}")
 
               # Show actual HTML structure
               print(f"DEBUG: Full HTML: {r.text[:1000]}")
