@@ -32,13 +32,14 @@ jobs:
         env:
           QUERY: ${{ github.event.inputs.query }}
         run: |
-          QUERY="${QUERY:-python}"
-          python3 << 'EOF'
+          python3 << 'PYEOF'
           import requests
           from bs4 import BeautifulSoup
 
           splash_url = "http://localhost:8050"
-          query = "$QUERY"
+          query = "${{ env.QUERY }}"
+          if not query:
+              query = "python"
 
           print("=== Splash in Docker Evaluation ===")
           print(f"Query: {query}")
@@ -84,7 +85,7 @@ jobs:
               print("PASS: >=3 platforms, >=10 items")
           else:
               print("NEEDS INVESTIGATION")
-          EOF
+          PYEOF
 
       - name: Cleanup
         if: always()
