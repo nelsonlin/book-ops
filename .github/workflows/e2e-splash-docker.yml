@@ -1,0 +1,92 @@
+name: E2E (Splash - Docker)
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'Search query'
+        required: true
+        default: 'python'
+
+jobs:
+  splash-docker:
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+    steps:
+      - name: Install Docker
+        run: |
+          apt-get update
+          apt-get install -y docker.io curl python3 python3-pip
+          docker --version
+
+      - name: Start Splash container
+        run: |
+          docker run -d --name splash -p 8050:8050 scrapinghub/splash
+          sleep 10
+          docker ps
+
+      - name: Verify Splash
+        run: |
+          curl -s http://localhost:8050 | head -c 200
+
+      - name: Test Splash rendering
+        env:
+          QUERY: ${{ github.event.inputs.query }}
+        run: |
+          QUERY="${QUERY:-python}"
+          python3 << 'EOF'
+          import requests
+          from bs4 import BeautifulSoup
+
+          splash_url = "http://localhost:8050"
+          query = "$QUERY"
+
+          print("=== Splash in Docker Evaluation ===")
+          print(f"Query: {query}")
+
+          # Test 1: Basic connectivity
+          r = requests.get(f"{splash_url}/render.html?url=https://example.com&wait=2", timeout=30)
+          print(f"Splash connectivity: {r.status_code}")
+
+          # Test 2: Render search results
+          search_url = f"https://taiwanlibrarysearch.herokuapp.com/result?book={query}"
+          print(f"URL: {search_url}")
+
+          r = requests.get(
+              f"{splash_url}/render.html",
+              params={"url": search_url, "wait": 4, "images": 0},
+              timeout=90
+          )
+          print(f"Status: {r.status_code}, Content: {len(r.text)} bytes")
+
+          soup = BeautifulSoup(r.text, 'html.parser')
+          blocks = soup.select('.content-block')
+          items = soup.select('.items-body-content a, .accordion')
+          print(f"Content blocks: {len(blocks)}")
+          print(f"Items: {len(items)}")
+
+          PLATFORMS = {1: "HyRead", 2: "UDN", 3: "國立公共資訊圖書館", 4: "台灣雲端書庫"}
+          results = {pid: 0 for pid in PLATFORMS}
+          for block in blocks:
+              text = block.get_text()
+              for pid, name in PLATFORMS.items():
+                  if name in text:
+                      results[pid] += 1
+
+          print("\n=== Results by Platform ===")
+          for pid, name in PLATFORMS.items():
+              print(f"  {name}: {results[pid]} blocks")
+
+          platforms = sum(1 for v in results.values() if v > 0)
+          print(f"\n=== Acceptance ===")
+          print(f"Platforms: {platforms}/4, Items: {len(items)}")
+
+          if platforms >= 3 and len(items) >= 10:
+              print("PASS: >=3 platforms, >=10 items")
+          else:
+              print("NEEDS INVESTIGATION")
+          EOF
+
+      - name: Cleanup
+        if: always()
+        run: docker stop splash || true
