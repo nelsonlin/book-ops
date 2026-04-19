@@ -59,15 +59,41 @@ jobs:
           )
           print(f"Status: {r.status_code}, Content: {len(r.text)} bytes")
 
-          soup = BeautifulSoup(r.text, 'html.parser')
-          blocks = soup.select('.content-block')
-          items = soup.select('.items-body-content a, .accordion')
-          print(f"Content blocks: {len(blocks)}")
-          print(f"Items: {len(items)}")
-
           # Debug: print first 500 chars of HTML
           if len(blocks) == 0:
               print(f"DEBUG HTML preview: {r.text[:500]}")
+
+          # If no blocks, try with Lua script for more wait time
+          if len(blocks) == 0:
+              print("Trying with Lua script for better rendering...")
+              lua_script = """
+              function main(splash, args)
+                  splash:go(args.url)
+                  splash:wait(8)
+                  return {{
+                      html = splash:html(),
+                      url = splash:url()
+                  }}
+              end
+              """
+              r = requests.get(
+                  f"{splash_url}/execute",
+                  params={"lua_source": lua_script, "url": search_url},
+                  timeout=120
+              )
+              print(f"Lua status: {r.status_code}, Content: {len(r.text)} bytes")
+
+              if r.status_code == 200:
+                  try:
+                      data = r.json()
+                      html = data.get('html', '')
+                      soup = BeautifulSoup(html, 'html.parser')
+                      blocks = soup.select('.content-block')
+                      items = soup.select('.items-body-content a, .accordion')
+                      print(f"Lua Content blocks: {len(blocks)}")
+                      print(f"Lua Items: {len(items)}")
+                  except Exception as e:
+                      print(f"Lua parse error: {e}")
 
           PLATFORMS = {1: "HyRead", 2: "UDN", 3: "國立公共資訊圖書館", 4: "台灣雲端書庫"}
           results = {pid: 0 for pid in PLATFORMS}
