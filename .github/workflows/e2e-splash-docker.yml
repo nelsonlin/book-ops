@@ -119,10 +119,21 @@ jobs:
                   print(f"Content blocks: {len(blocks)}")
                   print(f"Items: {len(items)}")
                   
-                  # Check for JS required message in Lua result
+                  # Check for JS required message in Lua result (Bug 3: add more anti-bot phrases)
                   html_lower = html.lower()
-                  if "enable javascript" in html_lower or "javascript is required" in html_lower:
-                      print("DETECTED: Site requires JavaScript!")
+                  anti_bot_phrases = [
+                      "enable javascript",
+                      "javascript is required",
+                      "you need to enable javascript",
+                      "javascript is disabled",
+                      "cf-wrapper",
+                      "challenge",
+                      "datadome",
+                      "access denied"
+                  ]
+                  for phrase in anti_bot_phrases:
+                      if phrase in html_lower:
+                          print(f"WARNING: Anti-bot phrase detected → '{phrase}'")
               except Exception as e:
                   print(f"Parse error: {e}")
           else:
